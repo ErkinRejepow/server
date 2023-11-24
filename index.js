@@ -54,7 +54,7 @@ server.listen(8000, ()=>{
 app.get("/logs", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    console.log("severity", req.query.severity);
+
     const logSize = 50;
     const page = parseInt(req.query.page);
     const is_know = parseInt(req.query.is_know);
@@ -87,7 +87,7 @@ app.get("/logs", async (req, res) => {
       const acceptedCountQuery = `SELECT COUNT(*) AS count FROM Logs.acceptedLogs_table WHERE user_id=${user.id} ${condition}`;
       const acceptedCountResult = await executedbLogsQuery(acceptedCountQuery);
 
-      const acceptedLogQuery = `SELECT * FROM Logs.acceptedLogs_table WHERE user_id=${user.id} ${condition} LIMIT ${logSize} OFFSET ${offset}`;
+      const acceptedLogQuery = `SELECT * FROM Logs.acceptedLogs_table WHERE user_id=${user.id} ${condition} ORDER BY timestamp DESC LIMIT ${logSize} OFFSET ${offset}`;
       const acceptedLogResult = await executedbLogsQuery(acceptedLogQuery);
 
       const response = {
@@ -118,7 +118,7 @@ app.get("/logs", async (req, res) => {
       const countQuery = `SELECT COUNT(*) AS count FROM logsdb.table_kiber WHERE ${condition}`;
       const countResult = await executeQuery(countQuery);
 
-      const sqlQuery = `SELECT * FROM logsdb.table_kiber WHERE ${condition} LIMIT ${logSize} OFFSET ${offset}`;
+      const sqlQuery = `SELECT * FROM logsdb.table_kiber WHERE ${condition} ORDER BY timestamp DESC LIMIT ${logSize} OFFSET ${offset}`;
       const logsResult = await executeQuery(sqlQuery);
 
       const response = {
@@ -143,7 +143,7 @@ app.put("/logs/:id", async (req, res) => {
   try {
     
     const authHeader = req.headers.authorization;
-    console.log(req.params);
+
     let jwt;
     let user;
 
@@ -160,17 +160,17 @@ app.put("/logs/:id", async (req, res) => {
 
     const logId = parseInt(req.params.id);
 
-    const sqlQuery = `SELECT * FROM logsdb.table_kiber WHERE id=${logId};`;
+    const sqlQuery = `SELECT * FROM logsdb.table_kiber WHERE id=${logId} ORDER BY timestamp DESC;`;
     const logsResult = await executeQuery(sqlQuery);
-    console.log(logsResult);
+
     const value = logsResult[0];
     const insertQuery = `INSERT INTO Logs.acceptedLogs_table(hostname, facility, severity, application, message, user_id) 
                           VALUES ("${value.hostname}","${value.facility}","${value.severity}","${value.application}","${value.message}","${user.id}");`;
     const insertResult = await executedbLogsQuery(insertQuery);
-    console.log("insertResult", insertResult);
+
     const deleteQuery = `DELETE FROM logsdb.table_kiber WHERE id=${logId};`;
     const deleteResult = await executeQuery(deleteQuery);
-      console.log(deleteResult);
+
     res.send({status:"success", code:200});
     }
   } catch (error) {
@@ -210,7 +210,6 @@ app.get("/count", async (req, res)=>{
           const countINFOResult = await executedbLogsQuery(countINFOQuery);
           const countWARNINGQuery = `SELECT COUNT(*) AS countWARNING FROM Logs.acceptedLogs_table WHERE user_id = ${user.id} AND severity="WARNING"`;
           const countWARNINGResult = await executedbLogsQuery(countWARNINGQuery);
-          console.log(countWARNINGResult);
           const response = {
             total: countERRResult[0].countERR + countINFOResult[0].countINFO + countWARNINGResult[0].countWARNING,
             info: countINFOResult[0].countINFO,
@@ -240,7 +239,7 @@ app.get("/count", async (req, res)=>{
       const countINFOResult = await executeQuery(countINFOQuery);
       const countWARNINGQuery = `SELECT COUNT(*) AS countWARNING FROM logsdb.table_kiber WHERE ${condition} AND severity="WARNING"`;
       const countWARNINGResult = await executeQuery(countWARNINGQuery);
-      console.log(countWARNINGResult);
+
       const response = {
         total: countERRResult[0].countERR + countINFOResult[0].countINFO + countWARNINGResult[0].countWARNING,
         info: countINFOResult[0].countINFO,
