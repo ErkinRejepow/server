@@ -11,15 +11,62 @@ const require = createRequire(import.meta.url);
 const app = express();
 const server = require('http').createServer(app);
 const io = require('socket.io')(server, { cors: {origin: "*"} });
+let last_timestamp;
 
 io.on('connection', client => {
-  console.log("new ws connection");
-  client.on('message', (data)=>{
-    console.log(data);
-  })
-  client.on('event', data => { console.log(data); });
-  client.on('disconnect', () => { /* … */ });
+  const authHeader = client.handshake.headers.authorization;
+  // client.broadcast.emit("update",{
+  //   datas:[],
+  //   count: null,
+  //   severityCounts: {
+  //     error, info, warning, total,
+  //   }
+  // })
+  
+  client.on("send_message",(data)=>{
+    console.log("sentMEssage:",data);
+  }) 
+  if (authHeader) {
+    jwt = authHeader.split(" ")[1]; // Extract the token from the "Bearer <token>" format
+    setInterval(updateMessage,10000,client,jwt);
+  }
 });
+
+async function updateMessage(client, jwt){
+  const roleResponse = await fetch("http://192.168.8.204:8001/role", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+    },
+  });
+  const roleData = await roleResponse.json();
+  if(roleData.code !== "token_not_valid"){
+    rules = await roleData?.results;
+    applicationCondition = rules?.map((element) => `\"${element.application}\"`).toString();
+    const condition = `timestamp >= DATE_SUB(NOW(), INTERVAL 1 DAY) AND application IN (${applicationCondition})`;
+
+    const countERRQuery = `SELECT COUNT(*) AS countERR FROM logsdb.table_kiber WHERE ${condition} AND severity="ERR"`;
+    const countERRResult = await executeQuery(countERRQuery);
+    const countINFOQuery = `SELECT COUNT(*) AS countINFO FROM logsdb.table_kiber WHERE ${condition} AND severity="INFO"`;
+    const countINFOResult = await executeQuery(countINFOQuery);
+    const countWARNINGQuery = `SELECT COUNT(*) AS countWARNING FROM logsdb.table_kiber WHERE ${condition} AND severity="WARNING"`;
+    const countWARNINGResult = await executeQuery(countWARNINGQuery);
+
+    const response = {
+      total: countERRResult[0].countERR + countINFOResult[0].countINFO + countWARNINGResult[0].countWARNING,
+      info: countINFOResult[0].countINFO,
+      warning: countWARNINGResult[0].countWARNING,
+      error: countERRResult[0].countERR
+    }
+    console.log("response",response);
+    client.broadcast.emit("update",{
+          datas:[],
+          count: 10,
+          severityCounts: response
+        })
+  }
+  
+}
 
 const db = mysql.createPool({
     host: "192.168.0.254",
