@@ -43,7 +43,7 @@ io.on('connection', async client => {
       const condition = `timestamp >= DATE_SUB(NOW(), INTERVAL 1 DAY) AND application IN (${applicationCondition})`;
       const sqlQuery = `SELECT * FROM logsdb.table_kiber 
                       WHERE ${condition}
-                      ORDER BY timestamp DESC
+                      ORDER BY id DESC
                       LIMIT 10`;
       const logsResult = await executeQuery(sqlQuery);
       lastProcessedRecordId = logsResult[0].id;
