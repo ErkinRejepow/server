@@ -3,14 +3,15 @@ import bodyParser from "body-parser";
 import cors from "cors";
 import mysql from "mysql2";
 import fetch from "node-fetch";
+import {createServer} from "http"
 import { Server } from "socket.io";
-import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
 
 const app = express();
-const server = require('http').createServer(app);
-const io = require('socket.io')(server, { cors: {origin: "*"} });
+const server = createServer(app);
+const io = new Server(server, { cors: {origin: "*"},
+                                path: "/mysocket"
+});
 let last_timestamp;
 
 io.on('connection', client => {
