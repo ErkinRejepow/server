@@ -5,16 +5,15 @@ import mysql from "mysql2";
 import fetch from "node-fetch";
 import {createServer} from "http"
 import { Server } from "socket.io";
+import moment from 'moment';
 
 
 const app = express();
 const server = createServer(app);
-const io = new Server(server, { cors: {origin: "*"},
-                                path: "/mysocket"
-});
-let last_timestamp;
+const io = new Server(server, { cors: {origin: "*"}});
+let lastProcessedRecordId = null;
 
-io.on('connection', client => {
+io.on('connection', async client => {
   const authHeader = client.handshake.headers.authorization;
   // client.broadcast.emit("update",{
   //   datas:[],
@@ -27,8 +26,28 @@ io.on('connection', client => {
   client.on("send_message",(data)=>{
     console.log("sentMEssage:",data);
   }) 
+
   if (authHeader) {
+    
     jwt = authHeader.split(" ")[1]; // Extract the token from the "Bearer <token>" format
+    const roleResponse = await fetch("http://192.168.8.204:8001/role", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+      },
+    });
+    const roleData = await roleResponse.json();
+    if(roleData.code !== "token_not_valid"){
+      rules = await roleData?.results;
+      applicationCondition = rules?.map((element) => `\"${element.application}\"`).toString();
+      const condition = `timestamp >= DATE_SUB(NOW(), INTERVAL 1 DAY) AND application IN (${applicationCondition})`;
+      const sqlQuery = `SELECT * FROM logsdb.table_kiber 
+                      WHERE ${condition}
+                      ORDER BY timestamp DESC
+                      LIMIT 10`;
+      const logsResult = await executeQuery(sqlQuery);
+      lastProcessedRecordId = logsResult[0].id;
+    }
     setInterval(updateMessage,10000,client,jwt);
   }
 });
@@ -45,26 +64,40 @@ async function updateMessage(client, jwt){
     rules = await roleData?.results;
     applicationCondition = rules?.map((element) => `\"${element.application}\"`).toString();
     const condition = `timestamp >= DATE_SUB(NOW(), INTERVAL 1 DAY) AND application IN (${applicationCondition})`;
+  
+    const countSQL = 
+    `SELECT 
+        SUM(CASE WHEN severity = 'ERR' THEN 1 ELSE 0 END) AS countERR,
+        SUM(CASE WHEN severity = 'INFO' THEN 1 ELSE 0 END) AS countINFO,
+        SUM(CASE WHEN severity = 'WARNING' THEN 1 ELSE 0 END) AS countWARNING
+      FROM logsdb.table_kiber
+      WHERE ${condition};
+        `;
+    const countResult = await executeQuery(countSQL);
 
-    const countERRQuery = `SELECT COUNT(*) AS countERR FROM logsdb.table_kiber WHERE ${condition} AND severity="ERR"`;
-    const countERRResult = await executeQuery(countERRQuery);
-    const countINFOQuery = `SELECT COUNT(*) AS countINFO FROM logsdb.table_kiber WHERE ${condition} AND severity="INFO"`;
-    const countINFOResult = await executeQuery(countINFOQuery);
-    const countWARNINGQuery = `SELECT COUNT(*) AS countWARNING FROM logsdb.table_kiber WHERE ${condition} AND severity="WARNING"`;
-    const countWARNINGResult = await executeQuery(countWARNINGQuery);
+    const sqlQuery = `SELECT * FROM logsdb.table_kiber 
+                      WHERE ${condition} AND id > ${lastProcessedRecordId}
+                      ORDER BY timestamp DESC`;
+    const logsResult = await executeQuery(sqlQuery);
 
-    const response = {
-      total: countERRResult[0].countERR + countINFOResult[0].countINFO + countWARNINGResult[0].countWARNING,
-      info: countINFOResult[0].countINFO,
-      warning: countWARNINGResult[0].countWARNING,
-      error: countERRResult[0].countERR
+    const severityCounts = {
+      total: parseInt(countResult[0].countERR) + parseInt(countResult[0].countINFO) + parseInt(countResult[0].countWARNING),
+      info: countResult[0].countINFO,
+      warning: countResult[0].countWARNING,
+      error: countResult[0].countERR
     }
-    console.log("response",response);
-    client.broadcast.emit("update",{
-          datas:[],
-          count: 10,
-          severityCounts: response
-        })
+    // console.log("query", sqlQuery);
+    console.log("logs",lastProcessedRecordId, logsResult);
+     // Update the last processed record ID to the latest value
+     if (logsResult.length > 0) {
+      lastProcessedRecordId = logsResult[0].id;
+      client.broadcast.emit("update",{
+        datas:logsResult,
+        count: 10,
+        severityCounts: severityCounts
+      })
+    }
+    
   }
   
 }
@@ -211,9 +244,13 @@ app.put("/logs/:id", async (req, res) => {
     const sqlQuery = `SELECT * FROM logsdb.table_kiber WHERE id=${logId} ORDER BY timestamp DESC;`;
     const logsResult = await executeQuery(sqlQuery);
 
+    
     const value = logsResult[0];
-    const insertQuery = `INSERT INTO Logs.acceptedLogs_table(hostname, facility, severity, application, message, user_id) 
-                          VALUES ("${value.hostname}","${value.facility}","${value.severity}","${value.application}","${value.message}","${user.id}");`;
+    console.log(value.timestamp);
+    value.timestamp =  moment(value.timestamp, 'ddd MMM DD YYYY HH:mm:ss [GMT]ZZ (z)').format('YYYY-MM-DDTHH:mm:ss.000Z');
+    
+    const insertQuery = `INSERT INTO Logs.acceptedLogs_table(timestamp, hostname, facility, severity, application, message, user_id) 
+                          VALUES ("${value.timestamp}","${value.hostname}","${value.facility}","${value.severity}","${value.application}","${value.message}","${user.id}");`;
     const insertResult = await executedbLogsQuery(insertQuery);
 
     const deleteQuery = `DELETE FROM logsdb.table_kiber WHERE id=${logId};`;
